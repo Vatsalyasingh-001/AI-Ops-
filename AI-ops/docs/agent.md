@@ -68,17 +68,28 @@ Do not jump to a later phase because it looks easier or more interesting.
 
 The initial application structure is fixed:
 
-aiops-project/
+AI-ops/
+├── README.md
+├── docker-compose.yml
+├── docs/
+│   ├── agent.md
+│   ├── architecture.md
+│   └── plan.md
 ├── app/
 │   ├── app.py
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── nginx/
 │   └── nginx.conf
-├── docker-compose.yml
-├── agent.md
-├── architecture.md
-└── plan.md
+├── prometheus/
+│   └── prometheus.yml
+└── grafana/
+    └── provisioning/
+        ├── dashboards/
+        │   ├── backend-overview.json
+        │   └── dashboard.yml
+        └── datasources/
+            └── datasource.yml
 
 When new components are introduced, extend this structure deliberately. Do not rename or move the existing paths unless explicitly approved.
 
