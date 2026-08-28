@@ -6,17 +6,28 @@ Build the AI-Ops project step by step without changing the agreed architecture o
 
 Fixed Starting Path
 
-aiops-project/
+AI-ops/
+├── README.md
+├── docker-compose.yml
+├── docs/
+│   ├── agent.md
+│   ├── architecture.md
+│   └── plan.md
 ├── app/
 │   ├── app.py
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── nginx/
 │   └── nginx.conf
-├── docker-compose.yml
-├── agent.md
-├── architecture.md
-└── plan.md
+├── prometheus/
+│   └── prometheus.yml
+└── grafana/
+    └── provisioning/
+        ├── dashboards/
+        │   ├── backend-overview.json
+        │   └── dashboard.yml
+        └── datasources/
+            └── datasource.yml
 
 This path must remain unchanged.
 

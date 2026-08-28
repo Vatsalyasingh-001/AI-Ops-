@@ -104,21 +104,28 @@ Docker Compose will connect Nginx to the backend.
 
 4. Phase 1 Application Structure
 
-aiops-project/
-|
-+-- app/
-|   +-- app.py
-|   +-- requirements.txt
-|   +-- Dockerfile
-|
-+-- nginx/
-|   +-- nginx.conf
-|
-+-- docker-compose.yml
-|
-+-- agent.md
-+-- architecture.md
-+-- plan.md
+AI-ops/
+├── README.md
+├── docker-compose.yml
+├── docs/
+│   ├── agent.md
+│   ├── architecture.md
+│   └── plan.md
+├── app/
+│   ├── app.py
+│   ├── requirements.txt
+│   └── Dockerfile
+├── nginx/
+│   └── nginx.conf
+├── prometheus/
+│   └── prometheus.yml
+└── grafana/
+    └── provisioning/
+        ├── dashboards/
+        │   ├── backend-overview.json
+        │   └── dashboard.yml
+        └── datasources/
+            └── datasource.yml
 
 5. Backend Endpoints
 
