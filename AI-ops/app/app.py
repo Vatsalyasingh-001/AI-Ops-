@@ -13,12 +13,53 @@ Endpoints:
 import time
 import logging
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aiops-backend")
+
+# Define prometheus metrics matching the dashboard queries
+HTTP_REQUESTS_TOTAL = Counter(
+    'http_requests_total',
+    'Total HTTP requests count',
+    ['endpoint', 'http_status']
+)
+
+HTTP_REQUEST_DURATION_SECONDS = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request latency in seconds',
+    ['endpoint']
+)
+
+@app.before_request
+def before_request():
+    request.start_time = time.time()
+
+@app.after_request
+def after_request(response):
+    # Only track API endpoints, avoid infinite loops if metrics is hit, or track everything
+    # Let's track everything since path-based routing is standard.
+    endpoint = request.path
+    status_code = str(response.status_code)
+    
+    # Increment total requests counter
+    HTTP_REQUESTS_TOTAL.labels(endpoint=endpoint, http_status=status_code).inc()
+    
+    # Record duration in histogram
+    if hasattr(request, 'start_time'):
+        duration = time.time() - request.start_time
+        HTTP_REQUEST_DURATION_SECONDS.labels(endpoint=endpoint).observe(duration)
+        
+    return response
+
+
+@app.route("/metrics")
+def metrics():
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
+
 
 
 @app.route("/")
