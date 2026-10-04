@@ -19,9 +19,12 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
 
     env:
-      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
-      LLM_MODEL: ${{ secrets.LLM_MODEL }}
+      OPEN_ROUTER: ${{ secrets.OPEN_ROUTER }}
+      BASE_URL: ${{ secrets.BASE_URL }}
+      NVIDIA_NEMOTRON: ${{ secrets.NVIDIA_NEMOTRON }}
+      LLM_API_KEY: ${{ secrets.OPEN_ROUTER }}
+      LLM_BASE_URL: ${{ secrets.BASE_URL }}
+      LLM_MODEL: ${{ secrets.NVIDIA_NEMOTRON }}
 
     steps:
       - name: Check out repository
@@ -32,12 +35,17 @@ jobs:
       - name: Validate required Robin configuration
         shell: bash
         run: |
-          for var in LLM_API_KEY LLM_BASE_URL LLM_MODEL; do
+          for var in OPEN_ROUTER BASE_URL NVIDIA_NEMOTRON; do
             if [ -z "${!var}" ]; then
               echo "::error::Missing required secret or environment variable: ${var}"
               exit 1
             fi
           done
+
+          if [ -z "$LLM_API_KEY" ] || [ -z "$LLM_BASE_URL" ] || [ -z "$LLM_MODEL" ]; then
+            echo "::error::One or more Robin secrets were not populated in the workflow environment."
+            exit 1
+          fi
 
       - name: Run Robin review
         id: robin
