@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Run a CI-style code review against the current git diff using an OpenAI-compatible API.
+
+Usage:
+  ./robin
+
+Environment variables:
+  LLM_API_KEY  Required.
+  LLM_BASE_URL Required, e.g. https://openrouter.ai/api/v1
+  LLM_MODEL    Required, e.g. openai/gpt-4o-mini
+
+This script intentionally does not deploy or mutate production infrastructure.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+
+def fail(message: str) -> None:
+    print(f"Error: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def run_git(args: list[str], *, allow_failure: bool = False) -> str:
+    try:
+        proc = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        fail("Git is unavailable. Please install git and try again.")
+
+    if proc.returncode != 0 and not allow_failure:
+        fail(proc.stderr.strip() or f"git {' '.join(args)} failed with exit code {proc.returncode}")
+
+    return proc.stdout.strip()
+
+
+def ensure_repo() -> str:
+    repo_root = run_git(["rev-parse", "--show-toplevel"], allow_failure=True)
+    if not repo_root:
+        fail("This directory is not a git repository.")
+    return repo_root
+
+
+def get_repo_state(repo_root: str) -> tuple[str, str, str]:
+    current_branch = run_git(["-C", repo_root, "branch", "--show-current"], allow_failure=True)
+    if not current_branch:
+        current_branch = "DETACHED"
+
+    base_ref = run_git(["-C", repo_root, "merge-base", "HEAD", "origin/main"], allow_failure=True)
+    if not base_ref:
+        base_ref = run_git(["-C", repo_root, "merge-base", "HEAD", "main"], allow_failure=True)
+    if not base_ref:
+        base_ref = run_git(["-C", repo_root, "merge-base", "HEAD", "master"], allow_failure=True)
+
+    if base_ref:
+        diff = run_git(["-C", repo_root, "diff", "--unified=3", base_ref, "HEAD"], allow_failure=True)
+    else:
+        diff = run_git(["-C", repo_root, "diff", "--unified=3"], allow_failure=True)
+
+    if not diff:
+        fail("No relevant git diff was found for review. Commit or modify files first.")
+
+    return current_branch, base_ref or "WORKTREE", diff
+
+
+def require_env() -> tuple[str, str, str]:
+    api_key = os.getenv("LLM_API_KEY")
+    base_url = os.getenv("LLM_BASE_URL")
+    model = os.getenv("LLM_MODEL")
+
+    missing = []
+    if not api_key:
+        missing.append("LLM_API_KEY")
+    if not base_url:
+        missing.append("LLM_BASE_URL")
+    if not model:
+        missing.append("LLM_MODEL")
+    if missing:
+        fail(f"Missing required environment variable(s): {', '.join(missing)}")
+
+    return api_key, base_url, model
+
+
+def build_prompt(diff_text: str, branch: str, repo_root: str) -> str:
+    relative_repo = os.path.basename(repo_root)
+    return f"""You are Robin, a CI-based PR reviewer for a repository named {relative_repo}. Review the changes in the current diff and provide actionable findings only.
+
+Scope: bugs, security issues, reliability problems, performance issues, error handling, missing tests, code quality, configuration issues, dependency risks, and production/SRE concerns.
+
+Do not comment on every line. Prioritize important issues and report no issues if there are no meaningful concerns.
+
+For each finding, include:
+- Severity
+- File
+- Line/location
+- Problem
+- Why it matters
+- Recommended fix
+
+If no significant issue is found, explicitly say there are no significant issues.
+
+Branch: {branch}
+
+Diff:
+```diff
+{diff_text}
+```
+"""
+
+
+def call_llm(api_key: str, base_url: str, model: str, prompt: str) -> str:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "You are Robin, a careful code reviewer focused on actionable engineering findings."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,
+    }
+
+    api_url = base_url.rstrip("/") + "/chat/completions"
+    request = urllib.request.Request(
+        api_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        details = exc.read().decode("utf-8", errors="replace").strip() or "No response body returned"
+        fail(f"LLM API failed with status {exc.code}: {details}")
+    except urllib.error.URLError as exc:
+        fail(f"LLM API request failed: {exc.reason}")
+
+    try:
+        result = json.loads(body)
+    except json.JSONDecodeError as exc:
+        fail(f"LLM API returned invalid JSON: {exc}")
+
+    choices = result.get("choices") or []
+    if not choices:
+        fail("LLM API returned no choices.")
+
+    message = choices[0].get("message") or {}
+    content = message.get("content") or ""
+    if not isinstance(content, str):
+        content = json.dumps(content)
+    return content.strip() or "No review output received from the model."
+
+
+def main() -> int:
+    repo_root = ensure_repo()
+    api_key, base_url, model = require_env()
+    branch, _, diff_text = get_repo_state(repo_root)
+    prompt = build_prompt(diff_text, branch, repo_root)
+    review = call_llm(api_key, base_url, model, prompt)
+
+    print(review)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception as exc:  # pragma: no cover - graceful CLI failure
+        fail(f"Unexpected error: {exc}")
