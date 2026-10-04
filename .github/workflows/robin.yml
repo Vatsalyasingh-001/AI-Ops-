@@ -1,0 +1,71 @@
+name: Robin CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  robin-review:
+    name: Review pull request with Robin
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+
+    env:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+      LLM_MODEL: ${{ secrets.LLM_MODEL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate required Robin configuration
+        shell: bash
+        run: |
+          for var in LLM_API_KEY LLM_BASE_URL LLM_MODEL; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Missing required secret or environment variable: ${var}"
+              exit 1
+            fi
+          done
+
+      - name: Run Robin review
+        id: robin
+        shell: bash
+        run: |
+          chmod +x ./robin
+          ./robin > robin-review.md 2>&1
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      - name: Publish review to PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.number != '' && steps.robin.outputs.status == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [ ! -s robin-review.md ]; then
+            echo "::error::Robin produced no review output."
+            exit 1
+          fi
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file robin-review.md
+
+      - name: Fail on Robin execution errors
+        if: steps.robin.outputs.status != '0'
+        shell: bash
+        run: |
+          echo "::error::Robin could not complete the review."
+          if [ -f robin-review.md ]; then
+            cat robin-review.md
+          fi
+          exit 1
